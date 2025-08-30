@@ -1,3 +1,4 @@
+import random
 import sys
 import mne
 import matplotlib.pyplot as plt
@@ -5,17 +6,24 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+from plot import visualize_preprocessing
+
+CHANNELS = ["C3..", "C4.."]            # motor cortex electrodes
+LRW_RUNS = {3, 4, 7, 8, 11, 12}
+WF_RUNS = {5, 6, 9, 10, 13, 14}
+
 def bandpower(epoch, sfreq, fmin, fmax):
     psd, _ = mne.time_frequency.psd_array_welch(epoch, sfreq=sfreq, fmin=fmin, fmax=fmax, verbose=False)
     return psd.mean(axis=1)  # average across frequencies
 
-def load_file(path: str):
+def load_file(path: Path):
     run_num = int(path.stem.split("R")[-1])
-    if run_num not in {3,4,7,8,11,12}:
+    if run_num not in LRW_RUNS:
         return None, None  # skip baselines
 
     # Load EDF
     raw = mne.io.read_raw_edf(path, preload=True)
+    raw.pick_types(eeg=True)
     raw.set_eeg_reference("average", projection=True)
     raw.filter(8., 30., fir_design="firwin")
 
@@ -26,7 +34,8 @@ def load_file(path: str):
     # Epoching
     epochs = mne.Epochs(raw, events, event_id=event_map,
                         tmin=0.0, tmax=2.0,
-                        baseline=None, preload=True)
+                        baseline=None, preload=True,
+                        picks=CHANNELS)
     X = epochs.get_data()
     y = epochs.events[:, -1]
     return X, y
@@ -205,83 +214,30 @@ def main(path:Path):
     X_list, y_list = [], []
     edf_files = sorted(path.glob("*.edf"))
 
-    plot_features_summary(edf_files[2]) 
+    visualize_preprocessing(random.choice(edf_files))
 
-    # for f in edf_files:
-    #     X, y = load_file(f)
-    #     if X is not None:
-    #         X_list.append(X)
-    #         y_list.append(y)
-    # X = np.concatenate(X_list, axis=0)
-    # y = np.concatenate(y_list, axis=0)
+    for f in edf_files:
+        X, y = load_file(f)
+        if X is not None:
+            X_list.append(X)
+            y_list.append(y)
+    X = np.concatenate(X_list, axis=0)
+    y = np.concatenate(y_list, axis=0)
 
-    # print(f"Total epochs: {len(y)}, shape of X: {X.shape}")
-
+    print(f"Total epochs: {len(y)}, shape of X: {X.shape}")
+    return X, y
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python preprocess.py /path/to/edf_file")
+        print("Usage: python preprocess.py /path/to/edf/file(s)")
         sys.exit(1)
     path = Path(sys.argv[1])
-    if not path.is_dir():
-        print("Provided path is not a folder")
-        sys.exit(1)
-    main(path)
-
-
-def main_old(path: str):
-    raw = mne.io.read_raw_edf(path, preload=True)
-    raw.set_eeg_reference('average', projection=True)
-    raw.filter(8., 30., fir_design="firwin")
-
-    n_channels = len(raw.ch_names)
-    sfreq = raw.info['sfreq']
-    print(n_channels)
-
-    # 2. Get events from annotations
-    events, event_id = mne.events_from_annotations(raw)
-    print("Event IDs:", event_id)
-
-
-    # 3. Create epochs (2s window, no baseline correction)
-    # Adjust event_id mapping according to your dataset's labels
-    # Example: {'wrist': 1, 'eyes_closed': 2}
-    epochs = mne.Epochs(
-        raw, events, event_id=None, tmin=0, tmax=2,
-        baseline=None, preload=True
-    )
-
-    # 4. Compute PSD per epoch
-    psd = epochs.compute_psd(fmin=1, fmax=50, method='welch', n_fft=int(sfreq * 2))
-    psd_data, freqs = psd.get_data(return_freqs=True)
-    # psd shape = (n_epochs, n_channels, n_freqs)
-    print("psd_data shape:", psd_data.shape)   # (n_epochs, n_channels, n_freqs)
-    print("freqs shape:", freqs.shape)         # (n_freqs,)
-
-    # 5. Extract band powers
-    alpha = bandpower(psd_data, freqs, 8, 13)   # shape: (n_epochs, n_channels)
-    beta  = bandpower(psd_data, freqs, 13, 30)
-
-    # 6. Prepare DataFrame
-    ch_names = epochs.ch_names
-    df = pd.DataFrame()
-
-    for i_epoch in range(len(epochs)):
-        row = {
-            "epoch": i_epoch,
-            "label": epochs.events[i_epoch, 2]  # numeric event code
-        }
-        for i_ch, ch in enumerate(ch_names):
-            row[f"{ch}_alpha"] = alpha[i_epoch, i_ch]
-            row[f"{ch}_beta"]  = beta[i_epoch, i_ch]
-        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-
-    # 7. Save to CSV
-    df.to_csv("eeg_bandpowers.csv", index=False)
-    print("Saved features to eeg_bandpowers.csv")
-
-
-
+    if path.is_dir():
+        main(path)
+    elif path.is_file():
+        plot_features_summary(path)
+    else:
+        print("Provided path is not a correct file/folder")
 
 # Feature Selection Justification:
 # For this BCI project, we focused on EEG signals

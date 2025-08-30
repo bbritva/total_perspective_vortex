@@ -1,53 +1,44 @@
+from pathlib import Path
+import sys
 import mne
 import matplotlib.pyplot as plt
-import numpy as np
 
-# Path to your EDF file (replace with your actual path)
-edf_path = "/home/grvelva/TPV/one_sample/S001R01.edf"
+def visualize_preprocessing(file: Path,
+                                    channels=("C3..", "C4.."),
+                                    freq_band=(8., 30.),
+                                    t_start=0, t_stop=10):
+    # --- Load raw data ---
+    raw = mne.io.read_raw_edf(file, preload=True)
+    raw.pick_types(eeg=True)
+    raw.set_eeg_reference("average", projection=True)
 
-# Load data
-raw = mne.io.read_raw_edf(edf_path, preload=True)
-raw.set_eeg_reference("average", projection=True)
+    # --- Apply band-pass filter ---
+    raw_filtered = raw.copy().filter(freq_band[0], freq_band[1], fir_design="firwin")
 
-# Get events
-events, event_id = mne.events_from_annotations(raw)
+    # --- Plot raw and filtered together ---
+    fig, axes = plt.subplots(len(channels), 1, figsize=(12, 6), sharex=True)
+    for i, ch in enumerate(channels):
+        data_raw, times = raw.copy().pick(ch).get_data(return_times=True)
+        data_filt, _ = raw_filtered.copy().pick(ch).get_data(return_times=True)
+        mask = (times >= t_start) & (times <= t_stop)
+        axes[i].plot(times[mask], data_raw[0, mask]*1e6, label="Raw", alpha=0.6, color="blue")
+        axes[i].plot(times[mask], data_filt[0, mask]*1e6, label=f"Filtered {freq_band[0]}-{freq_band[1]} Hz", alpha=0.8, color="red")
+        axes[i].set_ylabel(f"{ch} (µV)")
+        axes[i].legend(loc="upper right")
+    axes[-1].set_xlabel("Time (s)")
+    fig.suptitle(f"EEG Raw vs Filtered: {file.name}")
+    plt.tight_layout()
+    plt.show()
 
-# Pick first non-rest event if exists, else first event
-first_event_idx = 0
-event_sample = events[first_event_idx, 0]
-event_time = event_sample / raw.info["sfreq"]
 
-# Define window size and overlap
-epoch_length = 2.0  # seconds
-overlap = 1.0       # seconds
-sfreq = raw.info["sfreq"]
-n_samples_epoch = int(epoch_length * sfreq)
-n_samples_overlap = int(overlap * sfreq)
 
-# Get 10 seconds of data starting from the event onset
-duration = 10.0
-start_sample = int(event_time * sfreq)
-stop_sample = start_sample + int(duration * sfreq)
-data, times = raw.get_data(start=start_sample, stop=stop_sample, picks=[0], return_times=True)
 
-# Create epochs start points (with overlap)
-epoch_starts = np.arange(0, len(data[0]) - n_samples_epoch + 1, n_samples_epoch - n_samples_overlap)
-
-# Plot
-plt.figure(figsize=(12, 4))
-plt.plot(times - times[0], data[0] * 1e6, label="EEG (µV)")
-for s in epoch_starts:
-    t0 = times[s] - times[0]
-    t1 = times[s + n_samples_epoch - 1] - times[0]
-    plt.axvspan(t0, t1, color="orange", alpha=0.3)
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude (µV)")
-plt.title(f"Segmentation of a {duration}s window starting at event {list(event_id.keys())[0]}")
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-ann = raw.annotations
-print("Number of annotations:", len(ann))
-for onset, duration, desc in zip(ann.onset, ann.duration, ann.description):
-    print(f"{desc}: onset={onset:.3f}s  duration={duration:.3f}s")
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python plot.py /path/to/edf_file")
+        sys.exit(1)
+    path = Path(sys.argv[1])
+    if path.is_file():
+        visualize_preprocessing(path)
+    else:
+        print("Provided path is not a correct file/folder")
