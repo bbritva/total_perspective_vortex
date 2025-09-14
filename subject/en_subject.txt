@@ -80,8 +80,7 @@ bands, and visualize again after this preprocessing.
 This part is where you’ll decide which features you’ll extract from the signals to feed them
 to your algorithm. So you’ll have to be thorough picking what matters for the desired
 output.
-Oneexampleistousethepowerofthesignalbyfrequencyandbychanneltothepipeline’s
-input.
+One example is to use the power of the signal by frequency and by channel to the pipeline’s input.
 Most of the algorithms linked to filtering and obtaining the signal’s specter use fourier
 transform or wavelet transform (cf. bonus).
 V.1.2 Treatment pipeline

@@ -1,5 +1,4 @@
 from pathlib import Path
-import sys
 import mne
 import matplotlib.pyplot as plt
 import numpy as np
@@ -124,4 +123,3 @@ def plot_erd_contrast(file, picks=("C3..", "C4.."), fmin=8, fmax=30,
 if __name__ == "__main__":
     file = Path("./one_sample/S001R03.edf")
     plot_erd_contrast(file)
-    plot_lateralization_index(file)
