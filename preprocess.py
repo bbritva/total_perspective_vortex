@@ -6,7 +6,7 @@ from pathlib import Path
 from mne.datasets import eegbci
 
 # Channels over motor cortex
-CHANNELS = ["C3", "C4"]
+CHANNELS = ["FC3", "FC4", "C3", "Cz", "C4", "CP3", "CP4"]
 LRW_RUNS = {3, 4, 7, 8, 11, 12}  # left/right hand
 WF_RUNS = {5, 6, 9, 10, 13, 14}  # both hands/feet
 
@@ -88,6 +88,7 @@ def main(path: Path):
     X = np.concatenate(X_list, axis=0)
     y = np.concatenate(y_list, axis=0)
     print(f"Total epochs: {len(y)}, X shape: {X.shape}")
+    return X, y
 
 
 if __name__ == "__main__":

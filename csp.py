@@ -41,7 +41,7 @@ class CSP(BaseEstimator, TransformerMixin):
         The two unique class labels found in y.
     """
 
-    def __init__(self, n_components: int | None = None, reg: float = 1e-6):
+    def __init__(self, n_components: int | None = None, reg: float = 1e-4):
         self.n_components = n_components
         self.reg = reg
 
@@ -151,7 +151,8 @@ class CSP(BaseEstimator, TransformerMixin):
 
         k: int = n_components // 2
         top_idx: ndarray    = np.arange(self.n_channels_ - k, self.n_channels_)  # highest λ → class 1
-        bottom_idx: ndarray = np.arange(k)                                        # lowest  λ → class 2
+        start = 1 if np.abs(eigenvalues[0]) < 1e-6 else 0
+        bottom_idx = np.arange(start, start + k)
         selected: ndarray   = np.concatenate([bottom_idx, top_idx])
 
         # Store as row vectors: shape (n_components, n_channels)
