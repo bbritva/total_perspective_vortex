@@ -4,12 +4,13 @@ Common Spatial Patterns (CSP) — custom sklearn-compatible transformer.
 
 Design goals:
   - Works with ANY number of channels (auto-detected from X.shape)
-  - n_components defaults to min(2*2, n_channels) so it's always safe
+  - n_components defaults to min(4, n_channels) so it's always safe
   - Inherits BaseEstimator + TransformerMixin → usable in sklearn Pipeline,
     cross_val_score, GridSearchCV out of the box
 """
 
 import numpy as np
+from numpy import ndarray
 from scipy.linalg import eigh
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -40,7 +41,7 @@ class CSP(BaseEstimator, TransformerMixin):
         The two unique class labels found in y.
     """
 
-    def __init__(self, n_components=None, reg=1e-6):
+    def __init__(self, n_components: int | None = None, reg: float = 1e-6):
         self.n_components = n_components
         self.reg = reg
 
@@ -48,12 +49,12 @@ class CSP(BaseEstimator, TransformerMixin):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _covariance(self, epochs):
+    def _covariance(self, epochs: ndarray) -> ndarray:
         """
         Compute the average normalized covariance matrix across epochs.
 
         For each epoch (n_channels, n_times):
-          1. Compute covariance matrix  C = X @ X.T  (shape: n_ch x n_ch)
+          1. C = X @ X.T  (shape: n_ch x n_ch)
           2. Normalize by trace so amplitude differences don't dominate
           3. Average across all epochs of this class
 
@@ -68,12 +69,12 @@ class CSP(BaseEstimator, TransformerMixin):
         covs = []
         for epoch in epochs:
             # X @ X.T is faster and numerically equivalent to np.cov
-            # when the signal is zero-mean (which it is after band-pass filtering)
-            C = epoch @ epoch.T
+            # when the signal is zero-mean (after band-pass filtering)
+            C: ndarray = epoch @ epoch.T
             covs.append(C / np.trace(C))
         return np.mean(covs, axis=0)
 
-    def _resolve_n_components(self, n_channels):
+    def _resolve_n_components(self, n_channels: int) -> int:
         """
         Determine the actual number of components to use.
 
@@ -82,18 +83,10 @@ class CSP(BaseEstimator, TransformerMixin):
           - Cannot exceed n_channels (hard limit from linear algebra)
           - Default: min(4, n_channels) rounded down to nearest even number
         """
-        if self.n_components is None:
-            n = min(4, n_channels)
-        else:
-            n = self.n_components
-
-        # Clamp to channel count
-        n = min(n, n_channels)
-
-        # Force even number (top-k + bottom-k symmetry)
-        if n % 2 != 0:
+        n: int = min(4, n_channels) if self.n_components is None else self.n_components
+        n = min(n, n_channels)   # clamp to channel count
+        if n % 2 != 0:           # force even
             n -= 1
-
         if n < 2:
             raise ValueError(
                 f"Need at least 2 components (1 per class), got {n}. "
@@ -105,31 +98,29 @@ class CSP(BaseEstimator, TransformerMixin):
     # sklearn API
     # ------------------------------------------------------------------
 
-    def fit(self, X, y):
+    def fit(self, X: ndarray, y: ndarray) -> "CSP":
         """
         Learn the CSP spatial filters from training data.
 
         Steps:
           1. Separate epochs by class
           2. Compute per-class normalized covariance matrices (Σ1, Σ2)
-          3. Solve the generalized eigenvalue problem:
-               Σ1 @ w = λ * (Σ1 + Σ2) @ w
+          3. Solve generalized eigenvalue problem: Σ1 @ w = λ * (Σ1 + Σ2) @ w
              → eigenvalues λ ∈ [0, 1]:
                λ ≈ 1  means this filter captures mostly class-1 variance
                λ ≈ 0  means this filter captures mostly class-2 variance
           4. Select top-k (λ largest) and bottom-k (λ smallest) filters
-             → these maximally separate the two classes
 
         Parameters
         ----------
         X : ndarray, shape (n_epochs, n_channels, n_times)
-        y : ndarray, shape (n_epochs,)  — class labels (any two distinct values)
+        y : ndarray, shape (n_epochs,) — class labels (any two distinct values)
 
         Returns
         -------
         self
         """
-        self.classes_ = np.unique(y)
+        self.classes_: ndarray = np.unique(y)
         if len(self.classes_) != 2:
             raise ValueError(
                 f"CSP requires exactly 2 classes, got {len(self.classes_)}: {self.classes_}"
@@ -138,54 +129,48 @@ class CSP(BaseEstimator, TransformerMixin):
         _, self.n_channels_, _ = X.shape
         n_components = self._resolve_n_components(self.n_channels_)
 
-        # Separate epochs by class
-        X1 = X[y == self.classes_[0]]  # class 0 (e.g. label=1, left hand)
-        X2 = X[y == self.classes_[1]]  # class 1 (e.g. label=2, right hand)
+        X1: ndarray = X[y == self.classes_[0]]  # e.g. label=1, left hand
+        X2: ndarray = X[y == self.classes_[1]]  # e.g. label=2, right hand
 
-        # Per-class covariance matrices
-        cov1 = self._covariance(X1)
-        cov2 = self._covariance(X2)
+        cov1: ndarray = self._covariance(X1)
+        cov2: ndarray = self._covariance(X2)
 
-        # Composite covariance (total spread = sum of both classes)
-        cov_total = cov1 + cov2
-
+        cov_total: ndarray = cov1 + cov2
         # Regularization: nudge diagonal to avoid singular matrix
         # (especially important with only 2 channels or short recordings)
         cov_total += self.reg * np.eye(self.n_channels_)
 
-        # Generalized eigenvalue problem: cov1 @ W = λ * cov_total @ W
-        # eigh() returns eigenvalues sorted ASCENDING and guarantees real output
+        # eigh() returns eigenvalues sorted ASCENDING, guarantees real output
         # (valid because covariance matrices are symmetric positive semi-definite)
+        eigenvalues: ndarray
+        eigenvectors: ndarray
         eigenvalues, eigenvectors = eigh(cov1, cov_total)
 
-        # eigenvalues shape: (n_channels,)   — sorted low → high
+        # eigenvalues shape:  (n_channels,)            — sorted low → high
         # eigenvectors shape: (n_channels, n_channels) — columns are eigenvectors
 
-        # Select: last k (highest λ → best for class 1)
-        #         first k (lowest λ → best for class 2)
-        k = n_components // 2
-        top_idx    = np.arange(self.n_channels_ - k, self.n_channels_)  # last k
-        bottom_idx = np.arange(k)                                        # first k
-        selected   = np.concatenate([bottom_idx, top_idx])               # 2k total
+        k: int = n_components // 2
+        top_idx: ndarray    = np.arange(self.n_channels_ - k, self.n_channels_)  # highest λ → class 1
+        bottom_idx: ndarray = np.arange(k)                                        # lowest  λ → class 2
+        selected: ndarray   = np.concatenate([bottom_idx, top_idx])
 
-        # Store as row filters: shape (n_components, n_channels)
-        self.filters_     = eigenvectors[:, selected].T
-        self.eigenvalues_ = eigenvalues[selected]
+        # Store as row vectors: shape (n_components, n_channels)
+        self.filters_: ndarray     = eigenvectors[:, selected].T
+        self.eigenvalues_: ndarray = eigenvalues[selected]
 
         return self
 
-    def transform(self, X):
+    def transform(self, X: ndarray) -> ndarray:
         """
         Project epochs onto CSP filters and return log-variance features.
 
-        For each epoch:
-          1. Project:  Z = filters_ @ epoch   → shape (n_components, n_times)
-          2. Variance: var per component       → shape (n_components,)
-          3. Log:      log(var) to normalize scale and approximate Gaussianity
+        einsum notation 'fc,ect->eft':
+          f = n_components  (filters)
+          e = n_epochs
+          c = n_channels    (contracted / summed over)
+          t = n_times
 
-        The log-variance is the standard CSP feature for EEG.
-        It compresses large variance ranges and makes distributions more
-        Gaussian, which benefits LDA and other linear classifiers.
+        Produces (n_epochs, n_components, n_times), then var+log over time.
 
         Parameters
         ----------
@@ -195,20 +180,19 @@ class CSP(BaseEstimator, TransformerMixin):
         -------
         features : ndarray, shape (n_epochs, n_components)
         """
-        # Project all epochs at once: (n_epochs, n_components, n_times)
-        projected = np.tensordot(self.filters_, X, axes=[[1], [1]])
-        # tensordot result shape: (n_components, n_epochs, n_times)
-        # → transpose to (n_epochs, n_components, n_times)
-        projected = projected.transpose(1, 0, 2)
+        # filters_: (n_components, n_channels) — 'fc'
+        # X:        (n_epochs, n_channels, n_times) — 'ect'
+        # result:   (n_epochs, n_components, n_times) — 'eft'
+        projected: ndarray = np.einsum("fc,ect->eft", self.filters_, X)
 
-        # Variance over time axis, then log
-        # Clip at a tiny positive value to avoid log(0) on flat signals
-        var = np.var(projected, axis=2)
-        log_var = np.log(np.clip(var, 1e-10, None))
+        # Variance over time axis (2), then log
+        # Clip to avoid log(0) on pathological flat signals
+        var: ndarray     = np.var(projected, axis=2)
+        log_var: ndarray = np.log(np.clip(var, 1e-10, None))
 
         return log_var  # shape: (n_epochs, n_components)
 
-    def fit_transform(self, X, y=None, **fit_params):
+    def fit_transform(self, X: ndarray, y: ndarray | None = None, **fit_params) -> ndarray:  # type: ignore[override]
         """Convenience: fit then transform in one call."""
         return self.fit(X, y).transform(X)
 
@@ -216,15 +200,17 @@ class CSP(BaseEstimator, TransformerMixin):
     # Inspection helpers (not required by sklearn, useful for debugging)
     # ------------------------------------------------------------------
 
-    def get_filter_info(self):
+    def get_filter_info(self) -> None:
         """
         Print a summary of learned filters — useful during development.
 
-        Example output with 2 channels:
-          Filter 0: eigenvalue=0.0821  weights=[C3: -0.72, C4:  0.91]
-          Filter 1: eigenvalue=0.9179  weights=[C3:  0.85, C4:  0.63]
+        Example output with 2 channels (C3, C4):
+          CSP: 2 filters, 2 channels
+          Classes: 1 vs 2
+          Filter 0: λ=0.0821  weights=[-0.7201  +0.9134]
+          Filter 1: λ=0.9179  weights=[+0.8502  +0.6311]
         """
-        if not hasattr(self, 'filters_'):
+        if not hasattr(self, "filters_"):
             print("CSP not fitted yet. Call .fit(X, y) first.")
             return
         print(f"CSP: {len(self.filters_)} filters, {self.n_channels_} channels")
