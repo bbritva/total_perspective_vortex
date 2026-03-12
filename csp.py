@@ -192,7 +192,7 @@ class CSP(BaseEstimator, TransformerMixin):
 
         return log_var  # shape: (n_epochs, n_components)
 
-    def fit_transform(self, X: ndarray, y: ndarray | None = None, **fit_params) -> ndarray:  # type: ignore[override]
+    def fit_transform(self, X: ndarray, y: ndarray, **fit_params) -> ndarray:  # type: ignore[override]
         """Convenience: fit then transform in one call."""
         return self.fit(X, y).transform(X)
 
