@@ -6,6 +6,9 @@ from pathlib import Path
 from mne.datasets import eegbci
 from numpy import ndarray
 
+# Silence MNE info/filter messages — keep only real errors
+mne.set_log_level("WARNING")
+
 # Channels over motor cortex
 CHANNELS = ["FC3", "FC4", "C3", "Cz", "C4", "CP3", "CP4"]
 LRW_RUNS = {3, 4, 7, 8, 11, 12}   # left/right hand
@@ -21,8 +24,21 @@ def preprocess_raw(raw: mne.io.BaseRaw, l_freq: float = 8., h_freq: float = 30.)
     raw.set_montage(montage)
     raw.pick("eeg")
     raw.set_eeg_reference("average", projection=True)
-    raw.filter(l_freq, h_freq, fir_design="firwin")
+    raw.filter(l_freq, h_freq, fir_design="firwin", verbose=False)
     return raw
+
+
+def is_balanced(y: ndarray, max_ratio: float = 1.5) -> bool:
+    """
+    Check that class counts are roughly balanced.
+    Returns False if the majority class is more than max_ratio x the minority.
+    Imbalanced subjects (like S004 with 90:45) act as dummy classifiers.
+    """
+    classes, counts = np.unique(y, return_counts=True)
+    if len(classes) < 2:
+        return False
+    ratio = counts.max() / counts.min()
+    return ratio <= max_ratio
 
 
 def load_file(path: Path, runs: set = LRW_RUNS) -> tuple[ndarray | None, ndarray | None]:
@@ -67,14 +83,19 @@ def load_file(path: Path, runs: set = LRW_RUNS) -> tuple[ndarray | None, ndarray
         return None, None
 
 
-def load_subject(subject_dir: Path, runs: set = LRW_RUNS) -> tuple[ndarray | None, ndarray | None]:
+def load_subject(
+    subject_dir: Path,
+    runs: set = LRW_RUNS,
+    require_balance: bool = True
+) -> tuple[ndarray | None, ndarray | None]:
     """
     Load and concatenate all valid EDF runs for a single subject directory.
 
     Parameters
     ----------
-    subject_dir : Path   e.g. data/.../S001/
-    runs        : set    which run numbers to include (default: LRW_RUNS)
+    subject_dir    : Path   e.g. data/.../S001/
+    runs           : set    which run numbers to include (default: LRW_RUNS)
+    require_balance: bool   skip subject if classes are heavily imbalanced
 
     Returns
     -------
@@ -91,7 +112,15 @@ def load_subject(subject_dir: Path, runs: set = LRW_RUNS) -> tuple[ndarray | Non
     if not X_list:
         return None, None
 
-    return np.concatenate(X_list, axis=0), np.concatenate(y_list, axis=0)
+    X_out = np.concatenate(X_list, axis=0)
+    y_out = np.concatenate(y_list, axis=0)
+
+    if require_balance and not is_balanced(y_out):
+        counts = {int(c): int((y_out == c).sum()) for c in np.unique(y_out)}
+        print(f"  [SKIP] {subject_dir.name}: imbalanced classes {counts} — skipping")
+        return None, None
+
+    return X_out, y_out
 
 
 def load_all_subjects(
@@ -112,7 +141,7 @@ def load_all_subjects(
     -------
     X        : ndarray, shape (total_epochs, n_channels, n_times)
     y        : ndarray, shape (total_epochs,)
-    subjects : list[str]  subject IDs successfully loaded (e.g. ["S001", "S003", ...])
+    subjects : list[str]  subject IDs successfully loaded
     """
     subject_dirs = sorted(d for d in data_dir.iterdir() if d.is_dir() and d.name.startswith("S"))
 
