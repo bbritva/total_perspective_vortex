@@ -19,7 +19,7 @@ def preprocess_raw(raw: mne.io.BaseRaw, l_freq: float = 8., h_freq: float = 30.)
     eegbci.standardize(raw)
     montage = mne.channels.make_standard_montage("standard_1020")
     raw.set_montage(montage)
-    raw.pick_types(eeg=True)
+    raw.pick("eeg")
     raw.set_eeg_reference("average", projection=True)
     raw.filter(l_freq, h_freq, fir_design="firwin")
     return raw
@@ -56,7 +56,7 @@ def load_file(path: Path, runs: set = LRW_RUNS) -> tuple[ndarray | None, ndarray
             return None, None
 
         processed_folder.mkdir(exist_ok=True)
-        epochs.save(processed_folder / f"{filename}.fif", overwrite=True, verbose=False)
+        epochs.save(processed_folder / f"{filename}-epo.fif", overwrite=True, verbose=False)
 
         X = epochs.get_data()        # (n_epochs, n_channels, n_times)
         y = epochs.events[:, -1]     # labels 1 or 2
