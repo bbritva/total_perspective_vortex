@@ -149,6 +149,8 @@ def load_all_subjects(
 
     for subj_dir in subject_dirs:
         X, y = load_subject(subj_dir, runs=runs)
+        assert isinstance(X, np.ndarray)
+        assert isinstance(y, np.ndarray)
         if X is None:
             if verbose:
                 print(f"  [SKIP] {subj_dir.name}: no valid epochs")
@@ -201,6 +203,8 @@ def check_csp_quality(X: ndarray, y: ndarray, reg: float = 1e-4) -> None:
 def main(path: Path, runs: set = LRW_RUNS) -> tuple[ndarray | None, ndarray | None]:
     """Load all EDF files in a single folder (one subject). Kept for compatibility."""
     X, y = load_subject(path, runs=runs)
+    assert isinstance(X, np.ndarray)
+    assert isinstance(y, np.ndarray)
     if X is None:
         print("No valid epochs found in the folder")
         return None, None
@@ -225,6 +229,8 @@ if __name__ == "__main__":
         X, y, subjects = load_all_subjects(args.path, runs=runs)
     else:
         X, y = main(args.path, runs=runs)
+    assert isinstance(X, np.ndarray)
+    assert isinstance(y, np.ndarray)
 
     if args.check and X is not None:
         print()
