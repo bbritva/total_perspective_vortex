@@ -10,6 +10,15 @@ from numpy import ndarray
 # Silence MNE info/filter messages — keep only real errors
 mne.set_log_level("WARNING")
 
+# ---------------------------------------------------------------------------
+# Shared epoch window — change here to retrain with a different window size.
+# All downstream code (load_file, predict_raw_stream) reads from these.
+# Physionet tasks are 4s long, so any tmax <= 4.0 is safe (no dropped epochs).
+# ---------------------------------------------------------------------------
+EPOCH_TMIN: float = 0.0   # seconds after event onset
+EPOCH_TMAX: float = 2.0   # seconds after event onset  ← change to 1.5 to save 0.5s headroom
+SFREQ:      int   = 160   # BCI2000 sampling frequency (Hz)
+
 # Channels over motor cortex
 CHANNELS = ["FC3", "FC4", "C3", "Cz", "C4", "CP3", "CP4"]
 LRW_RUNS = {3, 4, 7, 8, 11, 12}   # left/right hand
@@ -26,7 +35,6 @@ def preprocess_raw(raw: mne.io.BaseRaw, l_freq: float = 8., h_freq: float = 30.)
     raw.pick("eeg")
     raw.set_eeg_reference("average", projection=True)
     raw.apply_proj()
-
     raw.filter(l_freq, h_freq, fir_design="firwin", verbose=False)
     return raw
 
@@ -35,7 +43,6 @@ def is_balanced(y: ndarray, max_ratio: float = 1.5) -> bool:
     """
     Check that class counts are roughly balanced.
     Returns False if the majority class is more than max_ratio x the minority.
-    Imbalanced subjects (like S004 with 90:45) act as dummy classifiers.
     """
     classes, counts = np.unique(y, return_counts=True)
     if len(classes) < 2:
@@ -62,16 +69,21 @@ def load_file(path: Path, runs: set = LRW_RUNS) -> tuple[ndarray | None, ndarray
         events, _ = mne.events_from_annotations(raw, verbose=False)
         event_map = {"T1": 1, "T2": 2}
 
+        n_before = sum(1 for _, _, c in events if c in (1, 2))
         epochs = mne.Epochs(
             raw, events,
             event_id=event_map,
-            tmin=0.0, tmax=2.0,
+            tmin=EPOCH_TMIN, tmax=EPOCH_TMAX,
             baseline=None,
             preload=True,
             picks=CHANNELS,
             verbose=False
         )
-        if len(epochs) == 0:
+        n_after = len(epochs)
+        if n_before != n_after:
+            print(f"  [WARN] {path.name}: {n_before - n_after} epochs dropped "
+                  f"(window {EPOCH_TMIN}-{EPOCH_TMAX}s too wide for inter-event gap)")
+        if n_after == 0:
             return None, None
 
         processed_folder.mkdir(exist_ok=True)
