@@ -47,8 +47,11 @@ def cmd_train(subject: int, run: int) -> None:
     print(f"Epochs: {len(y)}, shape: {X.shape}")
 
     save_path = model_path(subject, run)
-    pipeline, cv_scores, test_score = train(X, y, save_path)
-
+    result = train(X, y, model_path(subject, run))
+    if result is None:
+        print("[ERROR] Not enough data to train. Try a run with more epochs.")
+        sys.exit(1)
+    pipeline, cv_scores, test_score = result
     print(f"{np.round(cv_scores, 4).tolist()}")
     print(f"cross_val_score: {cv_scores.mean():.4f}")
     print(f"Test score (held-out 20%): {test_score:.4f}")
@@ -87,7 +90,9 @@ def cmd_evaluate_all() -> None:
             if len(np.unique(y)) < 2:
                 continue
 
-            acc = evaluate_subject(X, y)
+            acc = evaluate_subject(X, y, label=f"{subject_id} exp{exp_idx}")
+            if acc is None:
+                continue
             exp_accuracies[exp_idx].append(acc)
             print(f"experiment {exp_idx}: subject {subject_id}: accuracy = {acc:.4f}")
 

@@ -18,6 +18,7 @@ MODELS_DIR = Path("models")
 TEST_SIZE   = 0.2   # 20% held out for predict
 CV_FOLDS    = 5
 RANDOM_SEED = 42
+MIN_EPOCHS  = 20    # minimum epochs needed for a meaningful train/test split
 
 
 def build_pipeline(n_components: int = 4) -> Pipeline:
@@ -40,12 +41,27 @@ def build_pipeline(n_components: int = 4) -> Pipeline:
     ])
 
 
+def _check_data(X: ndarray, y: ndarray, label: str = "") -> bool:
+    tag = f" {label}" if label else ""
+    if len(y) < MIN_EPOCHS:
+        print(f"  [SKIP]{tag}: only {len(y)} epochs (need >= {MIN_EPOCHS})")
+        return False
+    classes, counts = np.unique(y, return_counts=True)
+    if len(classes) < 2:
+        print(f"  [SKIP]{tag}: only 1 class in data")
+        return False
+    if counts.min() < CV_FOLDS:
+        print(f"  [SKIP]{tag}: minority class has {counts.min()} epochs (need >= {CV_FOLDS})")
+        return False
+    return True
+
+
 def train(
     X: ndarray,
     y: ndarray,
     save_path: Path,
     n_components: int = 4,
-) -> tuple[Pipeline, ndarray, float]:
+) -> tuple[Pipeline, ndarray, float] | None:
     """
     Split data, cross-validate, fit on full train set, save model.
 
@@ -62,6 +78,8 @@ def train(
     cv_scores  : array of per-fold accuracy scores
     test_score : accuracy on the held-out 20% test set
     """
+    if not _check_data(X, y):
+        return None
     # 80/20 stratified split — test set is never touched during training
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_SEED
@@ -134,11 +152,7 @@ def predict_stream(
     return accuracy
 
 
-def evaluate_subject(
-    X: ndarray,
-    y: ndarray,
-    n_components: int = 4,
-) -> float:
+def evaluate_subject(X, y, label: str = "", n_components: int = 4) -> float | None:
     """
     Quick single-subject evaluation: fit on 80%, score on 20%.
     Used in the full all-subjects loop — no model is saved.
@@ -147,9 +161,16 @@ def evaluate_subject(
     -------
     test accuracy : float
     """
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_SEED
-    )
-    pipeline = build_pipeline(n_components=n_components)
-    pipeline.fit(X_train, y_train)
-    return float(pipeline.score(X_test, y_test))
+    if not _check_data(X, y, label=label):
+        return None
+    try:
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_SEED
+        )
+        pipeline = build_pipeline(n_components=n_components)
+        pipeline.fit(X_train, y_train)
+        return float(pipeline.score(X_test, y_test))
+    except Exception as e:
+        print(f"  [SKIP] {label}: {e}")
+        return None
