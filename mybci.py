@@ -11,7 +11,7 @@ import sys
 import numpy as np
 from pathlib import Path
 
-from preprocess import load_subject, LRW_RUNS, WF_RUNS
+from preprocess import load_subject
 from pipeline import train, load, predict_stream, evaluate_subject, MODELS_DIR
 
 DATA_DIR = Path("data/physionet.org/files/eegmmidb/1.0.0")
