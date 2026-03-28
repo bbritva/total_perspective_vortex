@@ -165,6 +165,7 @@ dataset*
 processed_data*
 data*
 physionet.org/*
+models/*
 
 # VS Code
 .vscode/

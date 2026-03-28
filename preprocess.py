@@ -25,6 +25,8 @@ def preprocess_raw(raw: mne.io.BaseRaw, l_freq: float = 8., h_freq: float = 30.)
     raw.set_montage(montage)
     raw.pick("eeg")
     raw.set_eeg_reference("average", projection=True)
+    raw.apply_proj()
+
     raw.filter(l_freq, h_freq, fir_design="firwin", verbose=False)
     return raw
 
