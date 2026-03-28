@@ -16,10 +16,6 @@ from pipeline import train, load, predict_stream, evaluate_subject, MODELS_DIR
 
 DATA_DIR = Path("data/physionet.org/files/eegmmidb/1.0.0")
 
-# Maps experiment index (0-5) to the run numbers for that experiment type
-# Mirrors the physionet dataset structure:
-#   exp 0,1 = left/right hand real (R03/04)     exp 2,3 = left/right hand imagined (R07/08, R11/12)
-#   exp 4,5 = both hands/feet real (R05/06)     ...
 EXPERIMENT_RUNS: dict[int, set[int]] = {
     0: {3, 4},    # real left/right hand
     1: {7, 8},    # imagined left/right hand (first)
@@ -36,23 +32,25 @@ def model_path(subject: int, run: int) -> Path:
 
 def cmd_train(subject: int, run: int) -> None:
     subj_dir = DATA_DIR / f"S{subject:03d}"
-    runs = {run}
 
     print(f"Loading S{subject:03d} run {run:02d}...")
-    X, y = load_subject(subj_dir, runs=runs, require_balance=False)
+    X, y = load_subject(subj_dir, runs={run}, require_balance=False)
     if X is None or y is None:
         print(f"[ERROR] No data found for subject {subject} run {run}")
         sys.exit(1)
 
     print(f"Epochs: {len(y)}, shape: {X.shape}")
 
-    save_path = model_path(subject, run)
-    pipeline, cv_scores, test_score = train(X, y, save_path)
+    result = train(X, y, model_path(subject, run))
+    if result is None:
+        print("[ERROR] Not enough data to train. Try a run with more epochs.")
+        sys.exit(1)
 
+    pipeline, cv_scores, test_score = result
     print(f"{np.round(cv_scores, 4).tolist()}")
     print(f"cross_val_score: {cv_scores.mean():.4f}")
     print(f"Test score (held-out 20%): {test_score:.4f}")
-    print(f"Model saved to: {save_path}")
+    print(f"Model saved to: {model_path(subject, run)}")
 
 
 def cmd_predict(subject: int, run: int) -> None:
@@ -67,10 +65,6 @@ def cmd_predict(subject: int, run: int) -> None:
 
 
 def cmd_evaluate_all() -> None:
-    """
-    Evaluate all 109 subjects across all 6 experiment types.
-    Prints per-subject accuracy and mean per experiment.
-    """
     subject_dirs = sorted(
         d for d in DATA_DIR.iterdir()
         if d.is_dir() and d.name.startswith("S")
@@ -84,10 +78,11 @@ def cmd_evaluate_all() -> None:
             X, y = load_subject(subj_dir, runs=runs, require_balance=False)
             if X is None or y is None:
                 continue
-            if len(np.unique(y)) < 2:
+
+            acc = evaluate_subject(X, y, label=f"{subject_id} exp{exp_idx}")
+            if acc is None:
                 continue
 
-            acc = evaluate_subject(X, y)
             exp_accuracies[exp_idx].append(acc)
             print(f"experiment {exp_idx}: subject {subject_id}: accuracy = {acc:.4f}")
 
