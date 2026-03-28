@@ -3,6 +3,7 @@ import sys
 import mne
 import numpy as np
 from pathlib import Path
+from scipy.linalg import eigh
 from mne.datasets import eegbci
 from numpy import ndarray
 
@@ -149,9 +150,7 @@ def load_all_subjects(
 
     for subj_dir in subject_dirs:
         X, y = load_subject(subj_dir, runs=runs)
-        assert isinstance(X, np.ndarray)
-        assert isinstance(y, np.ndarray)
-        if X is None:
+        if X is None or y is None:
             if verbose:
                 print(f"  [SKIP] {subj_dir.name}: no valid epochs")
             continue
@@ -179,7 +178,6 @@ def check_csp_quality(X: ndarray, y: ndarray, reg: float = 1e-4) -> None:
     Good data: eigenvalues spread from ~0.1 to ~0.9
     Bad data:  eigenvalues all cluster near 0.5
     """
-    from scipy.linalg import eigh
     classes = np.unique(y)
 
     def norm_cov(epochs: ndarray) -> ndarray:
@@ -194,22 +192,6 @@ def check_csp_quality(X: ndarray, y: ndarray, reg: float = 1e-4) -> None:
     spread = ev.max() - ev.min()
     print(f"CSP eigenvalue spread: {spread:.4f}  (want > 0.3)")
     print(f"Eigenvalues: {np.round(ev, 4)}")
-
-
-# ---------------------------------------------------------------------------
-# Legacy single-folder entry point (backwards compatible)
-# ---------------------------------------------------------------------------
-
-def main(path: Path, runs: set = LRW_RUNS) -> tuple[ndarray | None, ndarray | None]:
-    """Load all EDF files in a single folder (one subject). Kept for compatibility."""
-    X, y = load_subject(path, runs=runs)
-    assert isinstance(X, np.ndarray)
-    assert isinstance(y, np.ndarray)
-    if X is None:
-        print("No valid epochs found in the folder")
-        return None, None
-    print(f"Total epochs: {len(y)}, X shape: {X.shape}")
-    return X, y
 
 
 if __name__ == "__main__":
@@ -228,10 +210,8 @@ if __name__ == "__main__":
     if args.all:
         X, y, subjects = load_all_subjects(args.path, runs=runs)
     else:
-        X, y = main(args.path, runs=runs)
-    assert isinstance(X, np.ndarray)
-    assert isinstance(y, np.ndarray)
+        X, y = load_subject(args.path, runs=runs)
 
-    if args.check and X is not None:
+    if args.check and X is not None and y is not None:
         print()
         check_csp_quality(X, y)
