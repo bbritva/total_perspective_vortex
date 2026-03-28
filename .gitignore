@@ -164,6 +164,7 @@ cython_debug/
 dataset*
 processed_data*
 data*
+physionet.org/*
 
 # VS Code
 .vscode/
