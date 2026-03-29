@@ -98,9 +98,27 @@ def plot_features(X: np.ndarray, y: np.ndarray, channels: list) -> None:
     plt.show()
 
 
+# Run-type detection
+LRW_RUNS = {3, 4, 7, 8, 11, 12}
+WF_RUNS  = {5, 6, 9, 10, 13, 14}
+
+
+def _detect_run_type(file: Path) -> str:
+    """Detect task type from EDF filename. Returns 'lrw', 'wf', or 'unknown'."""
+    try:
+        run_num = int(file.stem.split("R")[-1])
+    except ValueError:
+        return "unknown"
+    if run_num in LRW_RUNS:
+        return "lrw"
+    elif run_num in WF_RUNS:
+        return "wf"
+    return "unknown"
+
+
 def plot_erd_contrast(
     file: Path,
-    picks: tuple = ("C3..", "C4.."),
+    picks: tuple | None = None,
     fmin: float = 8,
     fmax: float = 30,
     tmin: float = -0.2,
@@ -108,7 +126,26 @@ def plot_erd_contrast(
     baseline: tuple = (-0.5, 0.0),
     n_points: int = 8
 ) -> None:
-    """Plot ERD/ERS contrast between T1 and T2 conditions for selected channels."""
+    """Plot ERD/ERS contrast between T1 and T2 conditions for selected channels.
+    
+    Auto-detects task type from filename:
+      - LRW runs (left/right hand): picks C3 vs C4
+      - WF runs (hands/feet):       picks Cz vs C3
+    """
+    task = _detect_run_type(file)
+    if picks is None:
+        if task == "wf":
+            picks = ("Cz..", "C3..")
+        else:
+            picks = ("C3..", "C4..")
+
+    if task == "wf":
+        title = "ERD/ERS Contrast: Hands vs Feet"
+        contrast_label = "Hands-Feet"
+    else:
+        title = "ERD/ERS Contrast: Left vs Right Hand"
+        contrast_label = "L-R"
+
     if not file.exists():
         print(f"[ERROR] File not found: {file}")
         return
@@ -148,19 +185,19 @@ def plot_erd_contrast(
         diff = mean_T1 - mean_T2
         contrast[ch] = diff
 
-        print(f"\nChannel {ch} contrast (Left - Right) at sample points:")
+        print(f"\nChannel {ch} contrast ({contrast_label}) at sample points:")
         for t_idx in np.linspace(0, len(times) - 1, n_points, dtype=int):
             t = times[t_idx]
             d = diff[t_idx]
-            print(f"  t={t:5.2f}s | L-R={d:7.2f}")
+            print(f"  t={t:5.2f}s | {contrast_label}={d:7.2f}")
 
     plt.figure(figsize=(8, 5))
     for ch, color in zip(picks, ["purple", "green"]):
-        plt.plot(times, contrast[ch], label=f"{ch} (L-R)", color=color)
+        plt.plot(times, contrast[ch], label=f"{ch} ({contrast_label})", color=color)
     plt.axhline(0, color="black", ls="--", alpha=0.6)
     plt.xlabel("Time (s)")
-    plt.ylabel("% change (L-R)")
-    plt.title("ERD/ERS Contrast: Left vs Right Hand")
+    plt.ylabel(f"% change ({contrast_label})")
+    plt.title(title)
     plt.legend()
     plt.tight_layout()
     plt.show()
