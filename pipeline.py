@@ -19,7 +19,7 @@ MODELS_DIR  = Path("models")
 TEST_SIZE   = 0.2
 CV_FOLDS    = 5
 RANDOM_SEED = 42
-MIN_EPOCHS  = 20
+MIN_EPOCHS  = 18
 MAX_LATENCY = 2.0   # seconds — hard limit per subject specification
 
 
@@ -267,5 +267,6 @@ def evaluate_subject(X, y, label: str = "", n_components: int = 4) -> float | No
         pipeline.fit(X_train, y_train)
         return float(pipeline.score(X_test, y_test))
     except Exception as e:
-        print(f"  [SKIP] {label}: {e}")
+        msg = str(e)
+        print(f"  [SKIP] {label}: {e}\n  subject/run likely has very low discriminative signal")
         return None

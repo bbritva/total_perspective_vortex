@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import warnings
 import mne
 import numpy as np
 from pathlib import Path
@@ -9,6 +10,14 @@ from numpy import ndarray
 
 # Silence MNE info/filter messages — keep only real errors
 mne.set_log_level("WARNING")
+
+# Benign EDF boundary warning from some PhysioNet files (e.g. last annotation slightly
+# exceeds last sample timestamp due to rounding). Keep other warnings visible.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*annotation\(s\) that were expanding outside the data range\..*",
+    category=RuntimeWarning,
+)
 
 # ---------------------------------------------------------------------------
 # Shared epoch window — change here to retrain with a different window size.
