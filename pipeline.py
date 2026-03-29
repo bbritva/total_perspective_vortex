@@ -147,7 +147,8 @@ def predict_stream(
 
         match = pred == int(truth)
         correct += match
-        print(f"epoch {i:02d}: [{pred}] [{int(truth)}] {match}  (inference: {elapsed*1000:.2f}ms)")
+        status = "✓" if elapsed <= MAX_LATENCY else f"LATENCY EXCEEDED ({elapsed:.3f}s)"
+        print(f"epoch {i:02d}: [{pred}] [{int(truth)}] {match}  (inference: {elapsed*1000:.2f}ms) {status}")
 
         remaining = delay - elapsed
         if remaining > 0:

@@ -11,9 +11,9 @@ A Brain-Computer Interface (BCI) pipeline that classifies motor imagery EEG sign
 - [The Problem](#the-problem)
 - [Dataset](#dataset)
 - [How It Works](#how-it-works)
-  - [Step 1 — Preprocessing](#step-1--preprocessing)
-  - [Step 2 — Common Spatial Patterns (CSP)](#step-2--common-spatial-patterns-csp)
-  - [Step 3 — Classification with LDA](#step-3--classification-with-lda)
+    - [Step 1 — Preprocessing](#step-1--preprocessing)
+    - [Step 2 — Common Spatial Patterns (CSP)](#step-2--common-spatial-patterns-csp)
+    - [Step 3 — Classification with LDA](#step-3--classification-with-lda)
 - [Project Structure](#project-structure)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -35,20 +35,21 @@ The challenge: EEG signals are extremely noisy, non-stationary, and highly subje
 **PhysioNet EEG Motor Movement/Imagery Database** (109 subjects)
 
 Each subject performed 14 experimental runs:
+
 - **Rest** (R01, R02)
 - **Real movement** — left/right hand, both hands/feet (R03–R06)
 - **Imagined movement** — same tasks repeated twice (R07–R14)
 
 This project uses 6 experiment types, each pairing 2 runs per subject:
 
-| Experiment | Runs | Task |
-|---|---|---|
-| 0 | R03, R04 | Real left/right hand |
-| 1 | R07, R08 | Imagined left/right hand (1st) |
-| 2 | R11, R12 | Imagined left/right hand (2nd) |
-| 3 | R05, R06 | Real both hands / feet |
-| 4 | R09, R10 | Imagined both hands / feet (1st) |
-| 5 | R13, R14 | Imagined both hands / feet (2nd) |
+| Experiment | Runs     | Task                             |
+| ---------- | -------- | -------------------------------- |
+| 0          | R03, R04 | Real left/right hand             |
+| 1          | R07, R08 | Imagined left/right hand (1st)   |
+| 2          | R11, R12 | Imagined left/right hand (2nd)   |
+| 3          | R05, R06 | Real both hands / feet           |
+| 4          | R09, R10 | Imagined both hands / feet (1st) |
+| 5          | R13, R14 | Imagined both hands / feet (2nd) |
 
 Each run contains ~45 epochs of 2-second trials annotated as **T1** (class 1) or **T2** (class 2).
 
@@ -72,6 +73,7 @@ Raw EDF → Standardize channel names → Set montage (standard_1020)
 ```
 
 **Why these steps:**
+
 - **Average reference** removes the common-mode noise shared by all electrodes, making spatial differences between channels more meaningful.
 - **Band-pass 8–30 Hz** isolates the mu and beta rhythms where motor imagery signal lives. Everything below (eye blinks, slow drifts) and above (muscle artifacts, high-frequency noise) is discarded.
 - **7 motor cortex channels** — the full 64-channel cap contains many channels irrelevant to hand/foot motor imagery. Selecting FC3/FC4/C3/Cz/C4/CP3/CP4 reduces dimensionality and focuses the spatial filter on the relevant cortex region.
@@ -91,44 +93,47 @@ Given two classes of epochs (e.g. left hand vs. right hand), CSP computes:
 
 1. **Per-class normalized covariance matrix:**
 
-   For each epoch `X` of shape `(n_channels, n_times)`:
-   ```
-   C = (X @ X.T) / trace(X @ X.T)
-   ```
-   Then average across all epochs of that class → `Σ1`, `Σ2`.
+    For each epoch `X` of shape `(n_channels, n_times)`:
 
-   Normalizing by the trace removes amplitude differences between subjects and sessions, keeping only the spatial covariance structure.
+    ```
+    C = (X @ X.T) / trace(X @ X.T)
+    ```
+
+    Then average across all epochs of that class → `Σ1`, `Σ2`.
+
+    Normalizing by the trace removes amplitude differences between subjects and sessions, keeping only the spatial covariance structure.
 
 2. **Generalized eigenvalue problem:**
 
-   ```
-   Σ1 @ w = λ * (Σ1 + Σ2) @ w
-   ```
+    ```
+    Σ1 @ w = λ * (Σ1 + Σ2) @ w
+    ```
 
-   Solved with `scipy.linalg.eigh` (symmetric positive semi-definite version — faster and numerically stable).
+    Solved with `scipy.linalg.eigh` (symmetric positive semi-definite version — faster and numerically stable).
 
-   The eigenvalues `λ ∈ [0, 1]` have a direct interpretation:
-   - `λ ≈ 1` → this spatial filter captures mostly **class 1** variance
-   - `λ ≈ 0` → this spatial filter captures mostly **class 2** variance
-   - `λ ≈ 0.5` → this filter is uninformative (equal variance in both classes)
+    The eigenvalues `λ ∈ [0, 1]` have a direct interpretation:
+    - `λ ≈ 1` → this spatial filter captures mostly **class 1** variance
+    - `λ ≈ 0` → this spatial filter captures mostly **class 2** variance
+    - `λ ≈ 0.5` → this filter is uninformative (equal variance in both classes)
 
 3. **Filter selection:**
 
-   From all `n_channels` eigenvectors, we keep:
-   - The `k` filters with **highest** λ → class 1 detectors
-   - The `k` filters with **lowest** λ → class 2 detectors
+    From all `n_channels` eigenvectors, we keep:
+    - The `k` filters with **highest** λ → class 1 detectors
+    - The `k` filters with **lowest** λ → class 2 detectors
 
-   Default: `n_components = 4` → k=2 from each end.
+    Default: `n_components = 4` → k=2 from each end.
 
 4. **Feature extraction:**
 
-   Each epoch is projected through the selected filters:
-   ```
-   projected = filters @ epoch          # (n_components, n_times)
-   features  = log(var(projected))      # (n_components,)
-   ```
+    Each epoch is projected through the selected filters:
 
-   Log-variance compresses the dynamic range and makes features approximately Gaussian — ideal for LDA.
+    ```
+    projected = filters @ epoch          # (n_components, n_times)
+    features  = log(var(projected))      # (n_components,)
+    ```
+
+    Log-variance compresses the dynamic range and makes features approximately Gaussian — ideal for LDA.
 
 #### Why CSP Works for Motor Imagery
 
@@ -175,13 +180,11 @@ LDA is optimal when features are normally distributed — which log-variance CSP
 ```
 total_perspective_vortex/
 │
-├── mybci.py          # Main CLI — train, predict, full evaluation
-├── pipeline.py       # Pipeline: build, train, evaluate, predict_stream
+├── mybci.py          # Main CLI — train, predict, predict_raw, full evaluation
+├── pipeline.py       # Pipeline: build, train, evaluate, predict_stream, predict_raw_stream
 ├── csp.py            # Custom CSP transformer (sklearn-compatible)
 ├── preprocess.py     # MNE-based EEG loading and preprocessing
 ├── plot.py           # Visualization: raw signal, ERD/ERS, feature plots
-├── visualization.py  # Helper visualizations
-├── test.py           # Quick sanity checks
 ├── requirements.txt  # Python dependencies
 ├── init_env.sh       # Virtualenv setup script
 │
@@ -210,6 +213,7 @@ pip install -r requirements.txt
 ```
 
 **Dependencies:**
+
 ```
 mne
 numpy
@@ -220,6 +224,7 @@ matplotlib
 ```
 
 **Dataset:** Download from [PhysioNet](https://physionet.org/content/eegmmidb/1.0.0/) and place under:
+
 ```
 data/physionet.org/files/eegmmidb/1.0.0/S001/
 data/physionet.org/files/eegmmidb/1.0.0/S002/
@@ -237,11 +242,13 @@ python mybci.py <subject> <run> train
 ```
 
 Example:
+
 ```bash
 python mybci.py 1 3 train
 ```
 
 Output:
+
 ```
 Loading S001 run 03...
 Epochs: 23, shape: (23, 7, 321)
@@ -258,23 +265,54 @@ python mybci.py <subject> <run> predict
 ```
 
 Example:
+
 ```bash
 python mybci.py 1 3 predict
 ```
 
 Output:
+
 ```
 epoch nb: [prediction] [truth] equal?
-epoch 00: [1] [2] False
-epoch 01: [2] [1] False
-epoch 02: [1] [1] True
-epoch 03: [1] [1] True
-epoch 04: [2] [2] True
+epoch 00: [1] [2] False  (inference: 0.45ms) ✓
+epoch 01: [2] [1] False  (inference: 0.38ms) ✓
+epoch 02: [1] [1] True   (inference: 0.41ms) ✓
+epoch 03: [1] [1] True   (inference: 0.39ms) ✓
+epoch 04: [2] [2] True   (inference: 0.42ms) ✓
 
 Accuracy: 0.6000
 ```
 
-Each epoch is classified with a 0.25s delay to simulate real-time streaming (max allowed: 2s).
+Each epoch is classified one at a time with a 0.25s delay to simulate real-time streaming. Inference must complete within 2s per epoch (enforced with latency check).
+
+### Predict on raw EDF file (real-time BCI simulation)
+
+```bash
+python mybci.py <subject> <run> predict_raw
+```
+
+Example:
+
+```bash
+python mybci.py 1 3 predict_raw
+```
+
+This mode loads the original raw `.edf` file, applies preprocessing on-the-fly (channel standardization, average reference, band-pass filter 8–30 Hz), finds event onsets in the continuous signal, cuts 2-second windows at each onset, and feeds them to the pipeline one by one — simulating what a real BCI system would do with live EEG data.
+
+Output:
+
+```
+Streaming 23 epochs from S001R03.edf
+Window: 0.0-2.0s  (321 samples @ 160Hz)
+epoch nb: [prediction] [truth] equal?  (latency budget: 2.0s)
+epoch 00: [1] [1] True   (processing: 1.23ms) ✓
+epoch 01: [2] [1] False  (processing: 0.89ms) ✓
+...
+
+Accuracy: 0.6522  (15/23 correct, 0 skipped)
+```
+
+Each epoch must be processed within the 2s latency budget. If exceeded, a `LATENCY EXCEEDED` warning is printed.
 
 ### Full evaluation — all subjects × all experiments
 
@@ -283,6 +321,7 @@ python mybci.py
 ```
 
 Output (excerpt):
+
 ```
 experiment 0: subject S001: accuracy = 0.7000
 experiment 1: subject S001: accuracy = 0.6000
@@ -315,6 +354,7 @@ python preprocess.py data/.../S001/ --check
 ```
 
 Output:
+
 ```
 CSP eigenvalue spread: 0.6234  (want > 0.3)
 Eigenvalues: [0.1883 0.2341 0.7659 0.8117]
@@ -332,11 +372,12 @@ Each model is trained exclusively on data from the subject it will predict. Brai
 
 ### 80/20 stratified split
 
-The 80% train / 20% test split is stratified by class label, ensuring both classes are represented proportionally in each partition. The test set is saved alongside the model so `predict` mode always uses the exact same held-out epochs, guaranteeing reproducibility.
+The 80% train / 20% test split is stratified by class label, ensuring both classes are represented proportionally in each partition. The test set is saved alongside the model so `predict` mode always uses the exact same held-out epochs, guaranteeing reproducibility. The `predict_raw` mode instead loads the original EDF file and processes it on-the-fly, simulating a real-time BCI data stream with 2s latency enforcement per epoch.
 
 ### Graceful degradation
 
 Some subjects (~5%) have degenerate EEG for specific experiments — flat signals, zero-variance channels, or complete absence of motor imagery signal. The pipeline detects these cases and skips them rather than crashing:
+
 - `_check_data()`: validates epoch count and class balance before fitting
 - `try/except` in `evaluate_subject()`: catches numerical failures from LDA (e.g. zero singular values after degenerate CSP projection)
 
@@ -348,14 +389,14 @@ Some subjects (~5%) have degenerate EEG for specific experiments — flat signal
 
 ## Results
 
-| Experiment | Task | Mean Accuracy |
-|---|---|---|
-| 0 | Real left/right hand | 66.89% |
-| 1 | Imagined left/right hand (1st) | 62.02% |
-| 2 | Imagined left/right hand (2nd) | 65.76% |
-| 3 | Real both hands / feet | 65.96% |
-| 4 | Imagined both hands / feet (1st) | 67.78% |
-| 5 | Imagined both hands / feet (2nd) | 65.15% |
-| **Overall** | | **65.59%** |
+| Experiment  | Task                             | Mean Accuracy |
+| ----------- | -------------------------------- | ------------- |
+| 0           | Real left/right hand             | 66.89%        |
+| 1           | Imagined left/right hand (1st)   | 62.02%        |
+| 2           | Imagined left/right hand (2nd)   | 65.76%        |
+| 3           | Real both hands / feet           | 65.96%        |
+| 4           | Imagined both hands / feet (1st) | 67.78%        |
+| 5           | Imagined both hands / feet (2nd) | 65.15%        |
+| **Overall** |                                  | **65.59%**    |
 
 Chance level for binary classification is 50%. The pipeline achieves ~15 percentage points above chance consistently across all task types, including purely imagined movements.

@@ -3,18 +3,19 @@
 mybci.py — Main CLI entry point for the BCI pipeline.
 
 Usage:
-    python mybci.py <subject> <run> train    # train & save model
-    python mybci.py <subject> <run> predict  # stream predict on held-out test
-    python mybci.py                          # evaluate all subjects x experiments
+    python mybci.py <subject> <run> train        # train & save model
+    python mybci.py <subject> <run> predict      # stream predict on held-out test set
+    python mybci.py <subject> <run> predict_raw  # stream predict on raw EDF file
+    python mybci.py                              # evaluate all subjects x experiments
 """
 import sys
 import numpy as np
 from pathlib import Path
 
 from preprocess import load_subject
-from pipeline import train, load, predict_stream, evaluate_subject, MODELS_DIR
+from pipeline import train, load, predict_stream, predict_raw_stream, evaluate_subject, MODELS_DIR
 
-DATA_DIR = Path("data/physionet.org/files/eegmmidb/1.0.0")
+DATA_DIR = Path("data")
 
 # Maps experiment index (0-5) to the run numbers for that experiment type.
 # Mirrors the physionet dataset structure:
@@ -70,6 +71,26 @@ def cmd_predict(subject: int, run: int) -> None:
     predict_stream(pipeline, X_test, y_test)
 
 
+def cmd_predict_raw(subject: int, run: int) -> None:
+    """Predict on raw EDF file — simulates real-time BCI streaming."""
+    save_path = model_path(subject, run)
+    if not save_path.exists():
+        print(f"[ERROR] No trained model found at {save_path}")
+        print(f"  Run: python mybci.py {subject} {run} train")
+        sys.exit(1)
+
+    raw_path = DATA_DIR / f"S{subject:03d}" / f"S{subject:03d}R{run:02d}.edf"
+    if not raw_path.exists():
+        print(f"[ERROR] Raw EDF file not found: {raw_path}")
+        sys.exit(1)
+
+    pipeline, _, _ = load(save_path)
+    result = predict_raw_stream(pipeline, raw_path)
+    if result is None:
+        print("[ERROR] Could not process raw stream.")
+        sys.exit(1)
+
+
 def cmd_evaluate_all() -> None:
     """
     Evaluate all 109 subjects across all 6 experiment types.
@@ -123,14 +144,17 @@ def main() -> None:
             cmd_train(subject, run)
         elif mode == "predict":
             cmd_predict(subject, run)
+        elif mode == "predict_raw":
+            cmd_predict_raw(subject, run)
         else:
-            print(f"[ERROR] Unknown mode '{mode}'. Use 'train' or 'predict'.")
+            print(f"[ERROR] Unknown mode '{mode}'. Use 'train', 'predict', or 'predict_raw'.")
             sys.exit(1)
 
     else:
         print("Usage:")
         print("  python mybci.py <subject> <run> train")
         print("  python mybci.py <subject> <run> predict")
+        print("  python mybci.py <subject> <run> predict_raw")
         print("  python mybci.py")
         sys.exit(1)
 
