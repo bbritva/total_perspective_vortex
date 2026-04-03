@@ -203,11 +203,142 @@ def plot_erd_contrast(
     plt.show()
 
 
+def plot_csp_contrast(
+    file: Path,
+    model_path: Path,
+    tmin: float = 0.0,
+    tmax: float = 2.0,
+) -> None:
+    """
+    Show the effect of CSP by comparing raw electrode signals vs CSP-projected components.
+
+    Loads a trained model, applies the CSP spatial filters to all epochs from the EDF file,
+    then plots the class separation BEFORE (raw C3 vs C4 log-variance) and AFTER (CSP
+    component 0 vs component 3 log-variance). The CSP components should show a much
+    cleaner separation between T1 and T2 classes.
+
+    Parameters
+    ----------
+    file       : path to the EDF file to load epochs from
+    model_path : path to a .pkl file saved by pipeline.train()
+    tmin/tmax  : epoch window in seconds (should match the model's training window)
+    """
+    import joblib
+    from preprocess import preprocess_raw, CHANNELS
+
+    if not file.exists():
+        print(f"[ERROR] File not found: {file}")
+        return
+    if not model_path.exists():
+        print(f"[ERROR] Model not found: {model_path}")
+        print(f"  Run: python mybci.py <subject> <run> train")
+        return
+
+    # --- Load model ---
+    data = joblib.load(model_path)
+    pipeline = data["pipeline"]
+    csp = pipeline["csp"]
+    n_components = len(csp.filters_)
+
+    # --- Load and preprocess raw EDF ---
+    try:
+        raw = mne.io.read_raw_edf(file, preload=True, verbose=False)
+        raw = preprocess_raw(raw)
+        raw.pick(CHANNELS)
+    except Exception as e:
+        print(f"[ERROR] Could not load {file.name}: {e}")
+        return
+
+    events, _ = mne.events_from_annotations(raw, verbose=False)
+    event_map = {"T1": 1, "T2": 2}
+    epochs = mne.Epochs(
+        raw, events, event_id=event_map,
+        tmin=tmin, tmax=tmax,
+        baseline=None, preload=True, verbose=False
+    )
+
+    X = epochs.get_data()   # (n_epochs, n_channels, n_times)
+    y = epochs.events[:, -1]
+
+    if len(X) == 0:
+        print("[ERROR] No T1/T2 epochs found in this file.")
+        return
+
+    # --- Raw log-variance for C3 and C4 ---
+    ch_names = epochs.ch_names
+    c3_idx = next((i for i, c in enumerate(ch_names) if "C3" in c), None)
+    c4_idx = next((i for i, c in enumerate(ch_names) if "C4" in c), None)
+
+    # --- CSP-projected log-variance ---
+    X_csp = csp.transform(X)   # (n_epochs, n_components)
+
+    # Pick the two most discriminative components: lowest λ (class 2) and highest λ (class 1)
+    comp_low  = 0               # λ ≈ 0 → class 2 dominant
+    comp_high = n_components - 1  # λ ≈ 1 → class 1 dominant
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # --- LEFT panel: raw electrode log-variance (before CSP) ---
+    ax = axes[0]
+    if c3_idx is not None and c4_idx is not None:
+        lv_c3 = np.log(np.var(X[:, c3_idx, :], axis=1) + 1e-10)
+        lv_c4 = np.log(np.var(X[:, c4_idx, :], axis=1) + 1e-10)
+        ax.scatter(lv_c3[y == 1], lv_c4[y == 1], c="steelblue",  label="T1 (class 1)", alpha=0.7, s=60)
+        ax.scatter(lv_c3[y == 2], lv_c4[y == 2], c="tomato",     label="T2 (class 2)", alpha=0.7, s=60)
+        ax.set_xlabel("C3 log-variance")
+        ax.set_ylabel("C4 log-variance")
+    else:
+        ax.text(0.5, 0.5, "C3/C4 not found in channel list",
+                ha="center", va="center", transform=ax.transAxes)
+    ax.set_title("Before CSP\n(raw electrode log-variance)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # --- RIGHT panel: CSP component log-variance (after CSP) ---
+    ax = axes[1]
+    ax.scatter(X_csp[y == 1, comp_low], X_csp[y == 1, comp_high],
+               c="steelblue", label="T1 (class 1)", alpha=0.7, s=60)
+    ax.scatter(X_csp[y == 2, comp_low], X_csp[y == 2, comp_high],
+               c="tomato",    label="T2 (class 2)", alpha=0.7, s=60)
+    ax.set_xlabel(f"CSP component {comp_low}  (λ≈0, class-2 dominant)")
+    ax.set_ylabel(f"CSP component {comp_high} (λ≈1, class-1 dominant)")
+    ax.set_title("After CSP\n(spatial filter log-variance)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    task = _detect_run_type(file)
+    task_label = "Left vs Right Hand" if task == "lrw" else "Hands vs Feet"
+    fig.suptitle(
+        f"CSP Effect — {file.name}  |  {task_label}\n"
+        f"Model: {model_path.name}  |  {n_components} CSP components  |  {len(X)} epochs",
+        fontsize=11
+    )
+    plt.tight_layout()
+    plt.show()
+
+    # Print separation stats
+    for label, comp_idx in [(f"comp {comp_low} (λ≈0)", comp_low),
+                             (f"comp {comp_high} (λ≈1)", comp_high)]:
+        v1 = X_csp[y == 1, comp_idx]
+        v2 = X_csp[y == 2, comp_idx]
+        print(f"\nCSP {label}:")
+        print(f"  T1 mean={v1.mean():.3f}  std={v1.std():.3f}")
+        print(f"  T2 mean={v2.mean():.3f}  std={v2.std():.3f}")
+        print(f"  Separation (|Δmean| / avg_std): "
+              f"{abs(v1.mean()-v2.mean()) / ((v1.std()+v2.std())/2 + 1e-6):.2f}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python plot.py <path/to/file.edf>")
+        print("Usage:")
+        print("  python plot.py <path/to/file.edf>")
+        print("  python plot.py <path/to/file.edf> <path/to/model.pkl>   # also shows CSP contrast")
         sys.exit(1)
 
     file = Path(sys.argv[1])
     visualize_preprocessing(file)
     plot_erd_contrast(file)
+
+    if len(sys.argv) >= 3:
+        model_path = Path(sys.argv[2])
+        plot_csp_contrast(file, model_path)
