@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-from pathlib import Path
 import sys
+import joblib
+from pathlib import Path
+
 import mne
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import welch
 from mne.datasets import eegbci
+
+from preprocess import preprocess_raw, CHANNELS
 
 
 def visualize_preprocessing(
@@ -127,7 +131,7 @@ def plot_erd_contrast(
     n_points: int = 8
 ) -> None:
     """Plot ERD/ERS contrast between T1 and T2 conditions for selected channels.
-    
+
     Auto-detects task type from filename:
       - LRW runs (left/right hand): picks C3 vs C4
       - WF runs (hands/feet):       picks Cz vs C3
@@ -223,9 +227,6 @@ def plot_csp_contrast(
     model_path : path to a .pkl file saved by pipeline.train()
     tmin/tmax  : epoch window in seconds (should match the model's training window)
     """
-    import joblib
-    from preprocess import preprocess_raw, CHANNELS
-
     if not file.exists():
         print(f"[ERROR] File not found: {file}")
         return

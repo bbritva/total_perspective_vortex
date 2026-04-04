@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import warnings
+import argparse
 import mne
 import numpy as np
 from pathlib import Path
@@ -24,8 +25,8 @@ warnings.filterwarnings(
 # All downstream code (load_file, predict_raw_stream) reads from these.
 # Physionet tasks are 4s long, so any tmax <= 4.0 is safe (no dropped epochs).
 # ---------------------------------------------------------------------------
-EPOCH_TMIN: float = 0.0   # seconds after event onset
-EPOCH_TMAX: float = 2.0   # seconds after event onset  ← change to 1.5 to save 0.5s headroom
+EPOCH_TMIN: float = 0.0
+EPOCH_TMAX: float = 2.0
 SFREQ:      int   = 160   # BCI2000 sampling frequency (Hz)
 
 # Channels over motor cortex
@@ -126,6 +127,10 @@ def load_subject(
     X : ndarray, shape (n_epochs, n_channels, n_times)  or None
     y : ndarray, shape (n_epochs,)                      or None
     """
+    if not subject_dir.exists():
+        print(f"  [WARN] Subject directory not found: {subject_dir}")
+        return None, None
+
     X_list, y_list = [], []
     for edf in sorted(subject_dir.glob("*.edf")):
         X, y = load_file(edf, runs=runs)
@@ -167,7 +172,13 @@ def load_all_subjects(
     y        : ndarray, shape (total_epochs,)
     subjects : list[str]  subject IDs successfully loaded
     """
+    if not data_dir.exists():
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
+
     subject_dirs = sorted(d for d in data_dir.iterdir() if d.is_dir() and d.name.startswith("S"))
+
+    if not subject_dirs:
+        raise RuntimeError(f"No subject folders (S001, S002, ...) found under {data_dir}")
 
     X_all, y_all, subject_ids = [], [], []
 
@@ -218,8 +229,6 @@ def check_csp_quality(X: ndarray, y: ndarray, reg: float = 1e-4) -> None:
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="EEG preprocessing for Total Perspective Vortex")
     parser.add_argument("path", type=Path, help="Subject folder (single) or dataset root (--all)")
     parser.add_argument("--all", action="store_true", help="Process all subjects under path")

@@ -37,7 +37,10 @@ def model_path(subject: int, run: int) -> Path:
 
 def cmd_train(subject: int, run: int) -> None:
     subj_dir = DATA_DIR / f"S{subject:03d}"
-    # Determine which run set this run belongs to
+    if not subj_dir.exists():
+        print(f"[ERROR] Subject directory not found: {subj_dir}")
+        sys.exit(1)
+
     runs = {run}
 
     print(f"Loading S{subject:03d} run {run:02d}...")
@@ -96,10 +99,19 @@ def cmd_evaluate_all() -> None:
     Evaluate all 109 subjects across all 6 experiment types.
     Prints per-subject accuracy and mean per experiment.
     """
+    if not DATA_DIR.exists():
+        print(f"[ERROR] Data directory not found: {DATA_DIR}")
+        print("  Download the PhysioNet EEG Motor Movement/Imagery dataset first.")
+        sys.exit(1)
+
     subject_dirs = sorted(
         d for d in DATA_DIR.iterdir()
         if d.is_dir() and d.name.startswith("S")
     )
+
+    if not subject_dirs:
+        print(f"[ERROR] No subject folders (S001, S002, ...) found under {DATA_DIR}")
+        sys.exit(1)
 
     exp_accuracies: dict[int, list[float]] = {i: [] for i in range(6)}
 
