@@ -207,6 +207,34 @@ def plot_erd_contrast(
     plt.show()
 
 
+def _most_discriminative_components(
+    X_csp: np.ndarray,
+    y: np.ndarray,
+    n: int = 2,
+) -> list[int]:
+    """
+    Return indices of the n most class-discriminative CSP components,
+    ranked by Cohen's d (|Δmean| / pooled std) between the two classes.
+
+    Parameters
+    ----------
+    X_csp : (n_epochs, n_components) — CSP log-variance features
+    y     : (n_epochs,) — class labels
+    n     : how many components to return
+
+    Returns
+    -------
+    list of n component indices, sorted by most discriminative first
+    """
+    classes = np.unique(y)
+    c1, c2 = classes[0], classes[1]
+    v1 = X_csp[y == c1]
+    v2 = X_csp[y == c2]
+    pooled_std = (v1.std(axis=0) + v2.std(axis=0)) / 2 + 1e-6
+    cohen_d = np.abs(v1.mean(axis=0) - v2.mean(axis=0)) / pooled_std
+    return list(np.argsort(cohen_d)[::-1][:n])
+
+
 def plot_csp_contrast(
     file: Path,
     model_path: Path,
@@ -217,8 +245,8 @@ def plot_csp_contrast(
     Show the effect of CSP by comparing raw electrode signals vs CSP-projected components.
 
     Loads a trained model, applies the CSP spatial filters to all epochs from the EDF file,
-    then plots the class separation BEFORE (raw C3 vs C4 log-variance) and AFTER (CSP
-    component 0 vs component 3 log-variance). The CSP components should show a much
+    then plots the class separation BEFORE (raw C3 vs C4 log-variance) and AFTER (the two
+    most discriminative CSP components by Cohen's d). The CSP components should show a much
     cleaner separation between T1 and T2 classes.
 
     Parameters
@@ -273,9 +301,16 @@ def plot_csp_contrast(
     # --- CSP-projected log-variance ---
     X_csp = csp.transform(X)   # (n_epochs, n_components)
 
-    # Pick the two most discriminative components: lowest λ (class 2) and highest λ (class 1)
-    comp_low  = 0               # λ ≈ 0 → class 2 dominant
-    comp_high = n_components - 1  # λ ≈ 1 → class 1 dominant
+    # Auto-select the two most discriminative components (by Cohen's d)
+    top2 = _most_discriminative_components(X_csp, y, n=2)
+    comp_x, comp_y = top2[0], top2[1]
+
+    # Determine which component is class-1 vs class-2 dominant for axis labels
+    def _lambda_label(comp_idx: int) -> str:
+        ev = csp.eigenvalues_[comp_idx]
+        if ev > 0.5:
+            return f"λ≈1, class-1 dominant"
+        return f"λ≈0, class-2 dominant"
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -297,12 +332,12 @@ def plot_csp_contrast(
 
     # --- RIGHT panel: CSP component log-variance (after CSP) ---
     ax = axes[1]
-    ax.scatter(X_csp[y == 1, comp_low], X_csp[y == 1, comp_high],
+    ax.scatter(X_csp[y == 1, comp_x], X_csp[y == 1, comp_y],
                c="steelblue", label="T1 (class 1)", alpha=0.7, s=60)
-    ax.scatter(X_csp[y == 2, comp_low], X_csp[y == 2, comp_high],
+    ax.scatter(X_csp[y == 2, comp_x], X_csp[y == 2, comp_y],
                c="tomato",    label="T2 (class 2)", alpha=0.7, s=60)
-    ax.set_xlabel(f"CSP component {comp_low}  (λ≈0, class-2 dominant)")
-    ax.set_ylabel(f"CSP component {comp_high} (λ≈1, class-1 dominant)")
+    ax.set_xlabel(f"CSP component {comp_x}  ({_lambda_label(comp_x)})")
+    ax.set_ylabel(f"CSP component {comp_y} ({_lambda_label(comp_y)})")
     ax.set_title("After CSP\n(spatial filter log-variance)")
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -317,15 +352,14 @@ def plot_csp_contrast(
     plt.tight_layout()
     plt.show()
 
-    # Print separation stats
-    for label, comp_idx in [(f"comp {comp_low} (λ≈0)", comp_low),
-                             (f"comp {comp_high} (λ≈1)", comp_high)]:
+    # Print separation stats for selected components
+    for comp_idx in [comp_x, comp_y]:
         v1 = X_csp[y == 1, comp_idx]
         v2 = X_csp[y == 2, comp_idx]
-        print(f"\nCSP {label}:")
+        print(f"\nCSP comp {comp_idx} ({_lambda_label(comp_idx)}):")
         print(f"  T1 mean={v1.mean():.3f}  std={v1.std():.3f}")
         print(f"  T2 mean={v2.mean():.3f}  std={v2.std():.3f}")
-        print(f"  Separation (|Δmean| / avg_std): "
+        print(f"  Cohen's d: "
               f"{abs(v1.mean()-v2.mean()) / ((v1.std()+v2.std())/2 + 1e-6):.2f}")
 
 
