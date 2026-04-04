@@ -4,6 +4,7 @@ pipeline.py — Core BCI pipeline: build, train, evaluate, predict stream.
 """
 import time
 import joblib
+import mne
 import numpy as np
 from pathlib import Path
 from numpy import ndarray
@@ -179,8 +180,6 @@ def predict_raw_stream(
     -------
     accuracy : float, or None if no valid events found
     """
-    import mne
-
     if not raw_path.exists():
         print(f"[ERROR] File not found: {raw_path}")
         return None
@@ -267,6 +266,5 @@ def evaluate_subject(X, y, label: str = "", n_components: int = 4) -> float | No
         pipeline.fit(X_train, y_train)
         return float(pipeline.score(X_test, y_test))
     except Exception as e:
-        msg = str(e)
         print(f"  [SKIP] {label}: {e}\n  subject/run likely has very low discriminative signal")
         return None

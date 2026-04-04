@@ -150,9 +150,8 @@ class CSP(BaseEstimator, TransformerMixin):
         # eigenvectors shape: (n_channels, n_channels) — columns are eigenvectors
 
         k: int = n_components // 2
-        top_idx: ndarray    = np.arange(self.n_channels_ - k, self.n_channels_)  # highest λ → class 1
-        start = 1 if np.abs(eigenvalues[0]) < 1e-6 else 0
-        bottom_idx = np.arange(start, start + k)
+        bottom_idx: ndarray = np.arange(0, k)                                    # λ ≈ 0 → class 2
+        top_idx: ndarray    = np.arange(self.n_channels_ - k, self.n_channels_)  # λ ≈ 1 → class 1
         selected: ndarray   = np.concatenate([bottom_idx, top_idx])
 
         # Store as row vectors: shape (n_components, n_channels)
