@@ -1,5 +1,7 @@
 #!/bin/bash
 
+ln -s /home/grvelva/goinfre/files data
+
 # env setup
 python3 -m venv venv
 source venv/bin/activate
